@@ -1,128 +1,95 @@
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
-#include <string.h>
+#include </opt/homebrew/opt/opus/include/opus/opus.h>
+#include <rnnoise.h>
 
-#define N 256
+#define SAMPLE_RATE      48000
+#define CHANNELS         1
+#define FRAME_SIZE       960
+#define FRAME_SIZE_10MS  480
+#define MAX_PACKET_BYTES 1276
 
-typedef struct
-{
-    int sock;
-    FILE *pipe;
-} thread_arg_t;
+static OpusEncoder *opusEnc;
+static DenoiseState *dnStateSend;
+static int sockfd;
+static volatile int running = 1;
+static struct sockaddr_in server_addr;
+static FILE *rec_pipe;
 
-void *send_thread(void *arg)
-{
-    thread_arg_t *targ = (thread_arg_t *)arg;
-    unsigned char data[N];
-    ssize_t n;
-    while ((n = fread(data, 1, sizeof(data), targ->pipe)) > 0)
-    {
-        ssize_t sent = 0;
-        while (sent < n)
-        {
-            ssize_t m = write(targ->sock, data + sent, n - sent);
-            if (m < 0)
-            {
-                perror("write");
-                pthread_exit(NULL);
-            }
-            sent += m;
-        }
-    }
-    pthread_exit(NULL);
+int capture_frame(opus_int16 *pcm, int size) {
+    return fread(pcm, sizeof(opus_int16), size, rec_pipe);
 }
 
-void *recv_thread(void *arg)
-{
-    thread_arg_t *targ = (thread_arg_t *)arg;
-    unsigned char data[N];
-    ssize_t n;
-    while ((n = read(targ->sock, data, sizeof(data))) > 0)
-    {
-        ssize_t written = 0;
-        while (written < n)
-        {
-            ssize_t m = fwrite(data + written, 1, n - written, targ->pipe);
-            if (m <= 0)
-            {
-                perror("fwrite");
-                pthread_exit(NULL);
-            }
-            written += m;
+void *sender_loop(void *arg) {
+    opus_int16 pcm[FRAME_SIZE];
+    float fbuf[FRAME_SIZE_10MS];
+    unsigned char packet[MAX_PACKET_BYTES];
+
+    while (running) {
+        int got = capture_frame(pcm, FRAME_SIZE);
+        if (got != FRAME_SIZE) break;
+        // RNNoise前処理
+        for (int offset = 0; offset < FRAME_SIZE; offset += FRAME_SIZE_10MS) {
+            for (int i = 0; i < FRAME_SIZE_10MS; i++)
+                fbuf[i] = pcm[offset + i];
+            rnnoise_process_frame(dnStateSend, fbuf, fbuf);
+            for (int i = 0; i < FRAME_SIZE_10MS; i++)
+                pcm[offset + i] = (short)fbuf[i];
         }
-        fflush(targ->pipe);
+        int bytes = opus_encode(opusEnc, pcm, FRAME_SIZE, packet, MAX_PACKET_BYTES);
+        if (bytes < 0) continue;
+        sendto(sockfd, packet, bytes, 0,
+               (struct sockaddr *)&server_addr, sizeof(server_addr));
     }
-    pthread_exit(NULL);
+    return NULL;
 }
 
-int main(int argc, char **argv)
-{
-    if (argc != 3)
-    {
-        fprintf(stderr, "Usage: %s <ServerAddr> <Port>\n", argv[0]);
-        exit(1);
+int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <server_ip> <port> <dummy>\n", argv[0]);
+        return 1;
     }
+    const char *ip = argv[1];
+    int port = atoi(argv[2]);
 
-    int s;
-    s = socket(PF_INET, SOCK_STREAM, 0);
-    if (s == -1)
-    {
-        perror("socket");
-        exit(1);
-    }
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(atoi(argv[2]));
-    if (inet_pton(AF_INET, argv[1], &addr.sin_addr) != 1)
-    {
-        fprintf(stderr, "Invalid address\n");
-        exit(1);
-    }
-    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == -1)
-    {
-        perror("connect");
-        close(s);
-        exit(1);
-    }
+    dnStateSend = rnnoise_create(NULL);
+    int err;
+    opusEnc = opus_encoder_create(SAMPLE_RATE, CHANNELS,
+                                  OPUS_APPLICATION_VOIP, &err);
+    if (err != OPUS_OK) return 1;
+    opus_encoder_ctl(opusEnc, OPUS_SET_BITRATE(30000));
 
-    FILE *rec_pipe = popen("rec -t raw -b 16 -c 1 -e s -r 44100 -", "r");
-    if (!rec_pipe)
-    {
+    // rec プロセス起動
+    rec_pipe = popen("rec -t raw -b 16 -c 1 -e s -r 48000 -", "r");
+    if (!rec_pipe) {
         perror("popen rec");
-        close(s);
-        exit(1);
+        return 1;
     }
 
-    FILE *play_pipe = popen("play -t raw -b 16 -c 1 -e s -r 44100 -", "w");
-    if (!play_pipe)
-    {
-        perror("popen play");
-        close(s);
-        pclose(rec_pipe);
-        exit(1);
-    }
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    inet_aton(ip, &server_addr.sin_addr);
 
-    pthread_t tid_send, tid_recv;
-    thread_arg_t send_arg = {s, rec_pipe};
-    thread_arg_t recv_arg = {s, play_pipe};
+    // ハンドシェイク
+    sendto(sockfd, "H", 1, 0,
+           (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-    pthread_create(&tid_send, NULL, send_thread, &send_arg);
-    pthread_create(&tid_recv, NULL, recv_thread, &recv_arg);
+    pthread_t tid_send;
+    pthread_create(&tid_send, NULL, sender_loop, NULL);
 
+    getchar();
+    running = 0;
     pthread_join(tid_send, NULL);
-    pthread_cancel(tid_recv);
-    pthread_join(tid_recv, NULL);
 
     pclose(rec_pipe);
-    pclose(play_pipe);
-    close(s);
+    opus_encoder_destroy(opusEnc);
+    rnnoise_destroy(dnStateSend);
+    close(sockfd);
     return 0;
 }
