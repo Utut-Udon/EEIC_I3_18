@@ -1,12 +1,20 @@
 CC = gcc
-TARGET = i1i2i3_phone
-SRC = i1i2i3_phone.c
 
-all: $(TARGET)
+SERVER_SRC = server.c
+CLIENT_SRC = client.c
 
-$(TARGET): $(SRC)
-	$(CC) -o $(TARGET) $(SRC)
+SERVER_TARGET = server
+CLIENT_TARGET = client
+
+all: $(SERVER_TARGET) $(CLIENT_TARGET)
+
+$(SERVER_TARGET): $(SERVER_SRC)
+	$(CC) -o $(SERVER_TARGET) $(SERVER_SRC)
+
+$(CLIENT_TARGET): $(CLIENT_SRC)
+	$(CC) -o $(CLIENT_TARGET) $(CLIENT_SRC)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(SERVER_TARGET) $(CLIENT_TARGET)
+
 re: clean all
