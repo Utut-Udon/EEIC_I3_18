@@ -6,7 +6,7 @@
 #include <arpa/inet.h>
 
 #define MAX_PACKET_BYTES 1276
-#define MAX_CLIENTS       2
+#define MAX_CLIENTS       10
 
 static int sockaddr_eq(const struct sockaddr_in *a, const struct sockaddr_in *b) {
     return a->sin_addr.s_addr == b->sin_addr.s_addr
@@ -41,12 +41,11 @@ int main(int argc, char *argv[]) {
     while (1) {
         struct sockaddr_in src;
         int n = recvfrom(sockfd, buf, sizeof(buf), 0,
-                         (struct sockaddr*)&src, &addrlen);
+                        (struct sockaddr*)&src, &addrlen);
         if (n < 0) {
             perror("recvfrom");
             continue;
         }
-        // 新規クライアント登録
         int known = 0;
         for (int i = 0; i < peer_count; i++) {
             if (sockaddr_eq(&peers[i], &src)) {
@@ -57,18 +56,16 @@ int main(int argc, char *argv[]) {
         if (!known && peer_count < MAX_CLIENTS) {
             peers[peer_count++] = src;
             printf("New client: %s:%d\n",
-                   inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+                inet_ntoa(src.sin_addr), ntohs(src.sin_port));
         }
-        // 中継：送信元以外へ転送
         for (int i = 0; i < peer_count; i++) {
             if (!sockaddr_eq(&peers[i], &src)) {
                 sendto(sockfd, buf, n, 0,
-                       (struct sockaddr*)&peers[i], addrlen);
+                    (struct sockaddr*)&peers[i], addrlen);
             }
         }
     }
 
-    // never reached
     close(sockfd);
     return 0;
 }

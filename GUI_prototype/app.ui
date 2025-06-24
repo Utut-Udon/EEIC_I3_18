@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- app.ui: GTK3 UI definition for VoIP Relay/Client -->
+<interface>
+  <requires lib="gtk+" version="3.20"/>
+  <object class="GtkWindow" id="main_window">
+    <property name="title">VoIP Chat</property>
+    <property name="default-width">600</property>
+    <property name="default-height">400</property>
+    <child>
+      <object class="GtkBox" id="main_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">6</property>
+
+        <!-- Server Control Frame -->
+        <child>
+          <object class="GtkFrame" id="frame_server">
+            <property name="label">Server</property>
+            <child>
+              <object class="GtkGrid" id="grid_server">
+                <property name="row-spacing">6</property>
+                <property name="column-spacing">6</property>
+
+                <child>
+                  <object class="GtkLabel" id="label_port">
+                    <property name="label">Port:</property>
+                    <property name="halign">start</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="entry_port"/>
+                  <packing>
+                    <property name="left-attach">1</property>
+                    <property name="top-attach">0</property>
+                    <property name="hexpand">True</property>
+                  </packing>
+                </child>
+
+                <child>
+                  <object class="GtkButton" id="btn_start">
+                    <property name="label">Start Relay</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">1</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkButton" id="btn_stop">
+                    <property name="label">Stop Relay</property>
+                    <property name="sensitive">False</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">1</property>
+                    <property name="top-attach">1</property>
+                  </packing>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- Client Control Frame -->
+        <child>
+          <object class="GtkFrame" id="frame_client">
+            <property name="label">Client</property>
+            <child>
+              <object class="GtkGrid" id="grid_client">
+                <property name="row-spacing">6</property>
+                <property name="column-spacing">6</property>
+
+                <child>
+                  <object class="GtkLabel" id="label_ip">
+                    <property name="label">Server IP:</property>
+                    <property name="halign">start</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="entry_ip"/>
+                  <packing>
+                    <property name="left-attach">1</property>
+                    <property name="top-attach">0</property>
+                    <property name="hexpand">True</property>
+                  </packing>
+                </child>
+
+                <child>
+                  <object class="GtkLabel" id="label_cport">
+                    <property name="label">Port:</property>
+                    <property name="halign">start</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">1</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="entry_cport"/>
+                  <packing>
+                    <property name="left-attach">1</property>
+                    <property name="top-attach">1</property>
+                    <property name="hexpand">True</property>
+                  </packing>
+                </child>
+
+                <child>
+                  <object class="GtkButton" id="btn_connect">
+                    <property name="label">Connect</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">2</property>
+                    <property name="hexpand">True</property>
+                  </packing>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- Log Display Frame -->
+        <child>
+          <object class="GtkFrame" id="frame_log">
+            <property name="label">Log</property>
+            <child>
+              <object class="GtkScrolledWindow" id="scrolled_log">
+                <property name="hexpand">True</property>
+                <property name="vexpand">True</property>
+                <child>
+                  <object class="GtkTextView" id="log_view">
+                    <property name="editable">False</property>
+                    <property name="wrap-mode">word</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+
+      </object>
+    </child>
+  </object>
+</interface>

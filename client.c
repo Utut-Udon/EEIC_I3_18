@@ -36,7 +36,6 @@ void *sender_loop(void *arg) {
     while (running) {
         if (capture_frame(pcm, FRAME_SIZE) != FRAME_SIZE)
             break;
-        // RNNoise 前処理
         for (int off = 0; off < FRAME_SIZE; off += FRAME_SIZE_10MS) {
             for (int i = 0; i < FRAME_SIZE_10MS; i++)
                 fbuf[i] = pcm[off + i];
@@ -69,7 +68,6 @@ void *receiver_loop(void *arg) {
         int frame_size = opus_decode(opusDec, packet, n,
                                      pcm, FRAME_SIZE, 0);
         if (frame_size < 0) continue;
-        // RNNoise ポストフィルタ
         for (int off = 0; off < frame_size; off += FRAME_SIZE_10MS) {
             for (int i = 0; i < FRAME_SIZE_10MS; i++)
                 fbuf[i] = pcm[off + i];
@@ -91,19 +89,17 @@ int main(int argc, char *argv[]) {
     const char *ip   = argv[1];
     int          port = atoi(argv[2]);
 
-    // RNNoise, Opus 初期化
     dnStateSend = rnnoise_create(NULL);
     dnStateRecv = rnnoise_create(NULL);
     int err;
     opusEnc = opus_encoder_create(SAMPLE_RATE, CHANNELS,
                                   OPUS_APPLICATION_VOIP, &err);
     if (err != OPUS_OK) { fprintf(stderr, "opus_encoder_create: %s\n", opus_strerror(err)); return 1; }
-    opus_decoder_destroy(opusDec); // 念のため
+    opus_decoder_destroy(opusDec);
     opusDec = opus_decoder_create(SAMPLE_RATE, CHANNELS, &err);
     if (err != OPUS_OK) { fprintf(stderr, "opus_decoder_create: %s\n", opus_strerror(err)); return 1; }
     opus_encoder_ctl(opusEnc, OPUS_SET_BITRATE(30000));
 
-    // rec / play のパイプ
     rec_pipe  = popen("rec -t raw -b 16 -c 1 -e s -r 48000 -", "r");
     play_pipe = popen("play -t raw -b 16 -c 1 -e s -r 48000 -", "w");
     if (!rec_pipe || !play_pipe) {
@@ -111,29 +107,24 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // UDP ソケット
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port   = htons(port);
     inet_aton(ip, &server_addr.sin_addr);
 
-    // サーバーにダミーパケットを送り登録
     sendto(sockfd, "H", 1, 0,
            (struct sockaddr*)&server_addr, sizeof(server_addr));
 
-    // スレッド起動
     pthread_t tid_snd, tid_rcv;
     pthread_create(&tid_snd, NULL, sender_loop, NULL);
     pthread_create(&tid_rcv, NULL, receiver_loop, NULL);
 
-    // Enter で終了
     getchar();
     running = 0;
     pthread_join(tid_snd, NULL);
     pthread_join(tid_rcv, NULL);
 
-    // 後始末
     pclose(rec_pipe);
     pclose(play_pipe);
     opus_encoder_destroy(opusEnc);
