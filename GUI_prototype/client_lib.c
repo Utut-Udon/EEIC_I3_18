@@ -1,30 +1,28 @@
-// client_lib.c
-
 #include "client_lib.h"
 
-#define SAMPLE_RATE      48000   // サンプリング周波数
-#define CHANNELS         1       // モノラル
-#define FRAME_SIZE       960     // 20ms @ 48kHz
-#define FRAME_SIZE_10MS  480     // 10ms 単位
-#define MAX_PACKET_BYTES 1276    // UDP パケット最大サイズ
+#define SAMPLE_RATE      48000
+#define CHANNELS         1
+#define FRAME_SIZE       960
+#define FRAME_SIZE_10MS  480
+#define MAX_PACKET_BYTES 1276
 
-static volatile int   client_running = 0;  // 送受信ループ制御フラグ
+static volatile int   client_running = 0;
 static int            sockfd_client   = -1;
 static OpusEncoder   *opusEnc;
 static OpusDecoder   *opusDec;
 static DenoiseState  *dnSend, *dnRecv;
 static FILE          *rec_pipe, *play_pipe;
 
-// マイクから PCM フレームを読み込む
+// マイクから PCM 読み込み
 static int capture_frame(opus_int16 *pcm, int size) {
     return fread(pcm, sizeof(opus_int16), size, rec_pipe);
 }
 
-// 音声送信ループ
+// 送信ループ
 static void *sender_loop(void *arg) {
     struct sockaddr_in *srv = arg;
-    opus_int16   pcm[FRAME_SIZE];
-    float        fbuf[FRAME_SIZE_10MS];
+    opus_int16 pcm[FRAME_SIZE];
+    float      fbuf[FRAME_SIZE_10MS];
     unsigned char packet[MAX_PACKET_BYTES];
     socklen_t addrlen = sizeof(*srv);
 
@@ -32,7 +30,7 @@ static void *sender_loop(void *arg) {
         if (capture_frame(pcm, FRAME_SIZE) != FRAME_SIZE)
             break;
 
-        // RNNoise 前処理（10msごと）
+        // RNNoise 前処理
         for (int off = 0; off < FRAME_SIZE; off += FRAME_SIZE_10MS) {
             for (int i = 0; i < FRAME_SIZE_10MS; i++)
                 fbuf[i] = pcm[off + i];
@@ -52,7 +50,7 @@ static void *sender_loop(void *arg) {
     return NULL;
 }
 
-// 音声受信ループ（デバッグログ付き）
+// 受信ループ
 static void *receiver_loop(void *arg) {
     (void)arg;
     unsigned char packet[MAX_PACKET_BYTES];
@@ -64,20 +62,11 @@ static void *receiver_loop(void *arg) {
     while (client_running) {
         int n = recvfrom(sockfd_client, packet, MAX_PACKET_BYTES, 0,
                          (struct sockaddr*)&src, &addrlen);
-        if (n <= 0) {
-            fprintf(stderr, "[client recv] n=%d\n", n);
-            continue;
-        }
-        fprintf(stderr, "[client recv] %d bytes from %s:%d\n",
-                n, inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+        if (n <= 0) continue;
 
-        // Opus デコード
         int frame_size = opus_decode(opusDec, packet, n,
                                      pcm, FRAME_SIZE, 0);
-        if (frame_size < 0) {
-            fprintf(stderr, "[client decode] error %d\n", frame_size);
-            continue;
-        }
+        if (frame_size < 0) continue;
 
         // RNNoise ポスト処理
         for (int off = 0; off < frame_size; off += FRAME_SIZE_10MS) {
@@ -88,14 +77,13 @@ static void *receiver_loop(void *arg) {
                 pcm[off + i] = (short)fbuf[i];
         }
 
-        // PCM を再生パイプへ書き込み
+        // 再生
         fwrite(pcm, sizeof(opus_int16), frame_size, play_pipe);
         fflush(play_pipe);
     }
     return NULL;
 }
 
-// クライアントスレッドエントリポイント
 void *client_thread(void *arg) {
     char *conn_str = arg;
     char ip[64];
@@ -103,9 +91,9 @@ void *client_thread(void *arg) {
     sscanf(conn_str, "%63[^:]:%hu", ip, &port);
     free(conn_str);
 
-    struct sockaddr_in srv = {0};
+    // ソケット
     sockfd_client = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd_client < 0) return NULL;
+    struct sockaddr_in srv = {0};
     srv.sin_family = AF_INET;
     srv.sin_port   = htons(port);
     inet_aton(ip, &srv.sin_addr);
@@ -118,22 +106,22 @@ void *client_thread(void *arg) {
                                   OPUS_APPLICATION_VOIP, &err);
     opusDec = opus_decoder_create(SAMPLE_RATE, CHANNELS, &err);
 
-    // rec/play パイプ起動
+    // rec/play パイプ
     rec_pipe  = popen("rec -t raw -b 16 -c 1 -e s -r 48000 -", "r");
     play_pipe = popen("play -t raw -b 16 -c 1 -e s -r 48000 -", "w");
 
-    // サーバーにダミーパケット送信して登録
+    // ダミーパケットでサーバー登録
     sendto(sockfd_client, "H", 1, 0,
            (struct sockaddr*)&srv, sizeof(srv));
 
     client_running = 1;
-    pthread_t t_send, t_recv;
-    pthread_create(&t_send, NULL, sender_loop, &srv);
-    pthread_create(&t_recv, NULL, receiver_loop, NULL);
-    pthread_join(t_send, NULL);
-    pthread_join(t_recv, NULL);
+    pthread_t th1, th2;
+    pthread_create(&th1, NULL, sender_loop,   &srv);
+    pthread_create(&th2, NULL, receiver_loop, NULL);
+    pthread_join(th1, NULL);
+    pthread_join(th2, NULL);
 
-    // 後始末
+    // クリーンアップ
     pclose(rec_pipe);
     pclose(play_pipe);
     opus_encoder_destroy(opusEnc);
@@ -144,11 +132,6 @@ void *client_thread(void *arg) {
     return NULL;
 }
 
-// クライアント停止
 void stop_client(void) {
     client_running = 0;
-    if (sockfd_client >= 0) {
-        close(sockfd_client);
-        sockfd_client = -1;
-    }
 }

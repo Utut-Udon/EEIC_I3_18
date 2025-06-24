@@ -10,10 +10,11 @@
 #include </opt/homebrew/opt/opus/include/opus/opus.h>
 #include <rnnoise.h>
 
-// Thread entry: arg is pointer to a "ip:port" string
+// arg は "ip:port" 形式の文字列へのポインタ
 void *client_thread(void *arg);
 
-// Stop client loops
+// 送受信ループを止める
 void stop_client(void);
 
-#endif
+#endif // CLIENT_LIB_H
+
